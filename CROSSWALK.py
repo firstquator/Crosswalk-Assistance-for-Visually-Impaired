@@ -2,7 +2,6 @@ import cv2
 import numpy as np
 import math
 import time
-from sklearn import linear_model
 from YOLO.YOLO import YOLO
 
 
