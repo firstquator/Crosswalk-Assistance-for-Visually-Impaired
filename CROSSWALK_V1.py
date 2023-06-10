@@ -37,9 +37,13 @@ class HELP_CROSSWALK:
             "contour_area_thres": 0.010,
             "width_thres": 50,
             "radius_thres": 250,
-            "safe_interval": 70,
+            "safe_interval": 85,
+            "safe_angle": 30,
             "min_points": 3,
+            "timer": -1,
+            "pause_time": 3,
             "debug_color_dict": {
+                "font_color": (0, 0, 0),
                 "connect_lines": (212, 250, 252),
                 "left_points": (184, 231, 225),
                 "right_points": (189, 205, 214),
@@ -169,7 +173,7 @@ class HELP_CROSSWALK:
                     self.cur_mode = self.MODE["LOCATION_PED"]
                     self.HISTORY["FIND_ZC"].clear()
         else:
-            self.CONFIG["FIND_ZC"]["timer"] == -1
+            self.CONFIG["FIND_ZC"]["timer"] = -1
 
         # [ DEBUG ]
         if self.debug:
@@ -326,17 +330,73 @@ class HELP_CROSSWALK:
 
         # 8. Calculate the direction vector
         Cx = (W - 1) // 2  # Center of the screen
-        dx = int(Cx - x_interpolation)  # Regular x axis coordinates
 
         # 9. Calculate the angle
         left, right = ransacLeft[0], ransacRight[0]
         angle = self.__angleCalc(left, right)
 
-        DirAngle = [dx, angle]  # Direction & Angle vector D = (dx, dy, angle)
+        # 10. Control the user directions to get to the correct location.
+        history = self.HISTORY["LOCATION_PED"]
+        move = ("LEFT", "STOP", "RIGHT")
+        turn = ("LEFT", "STOP", "RIGHT")
+
+        ## Move
+        if x_interpolation < Cx - self.CONFIG["LOCATION_PED"]["safe_interval"]:
+            move_idx = 0
+        elif x_interpolation > Cx + self.CONFIG["LOCATION_PED"]["safe_interval"]:
+            move_idx = 2
+        else:
+            move_idx = 1
+
+        ## Turn
+        if abs(angle) > self.CONFIG["LOCATION_PED"]["safe_angle"]:
+            if angle > 0:
+                turn_idx = 0
+            elif angle < 0:
+                turn_idx = 2
+        else:
+            turn_idx = 1
+
+        ## Control User (Speaker)
+        duration = 0
+        if move_idx == 1 and turn_idx == 1:
+            if self.CONFIG["LOCATION_PED"]["timer"] == -1:
+                self.CONFIG["LOCATION_PED"]["timer"] = time.time()
+            else:
+                duration = round(time.time() - self.CONFIG["LOCATION_PED"]["timer"], 3)
+                if duration > self.CONFIG["LOCATION_PED"]["pause_time"]:
+                    self.cur_mode = self.MODE["DETECT_TRAFFIC_LIGHT"]
+                    self.HISTORY["LOCATION_PED"].clear()
+        else:
+            self.CONFIG["LOCATION_PED"]["timer"] = -1
 
         # [ DEBUG ]
         if self.debug:
             cv2.imshow("LOCATION_PED : Mask", erode)
+
+            ## Duration
+            cv2.putText(
+                frame,
+                f"Duration : {duration}",
+                (10, 30),  # (x, y)
+                cv2.FONT_HERSHEY_PLAIN,
+                1,
+                self.CONFIG["LOCATION_PED"]["debug_color_dict"]["font_color"],
+                2,
+                cv2.LINE_AA,
+            )
+            ## Show control
+            control = f"Move : {move[move_idx]} / Turn : {turn[turn_idx]}"
+            cv2.putText(
+                frame,
+                control,
+                (10, 50),  # (x, y)
+                cv2.FONT_HERSHEY_PLAIN,
+                1,
+                self.CONFIG["LOCATION_PED"]["debug_color_dict"]["font_color"],
+                2,
+                cv2.LINE_AA,
+            )
 
             ## Show the middle part of the left and right sides of a zebra-crossing
             for left, right, mid in zip(ransacLeft, ransacRight, ransacMiddle):
