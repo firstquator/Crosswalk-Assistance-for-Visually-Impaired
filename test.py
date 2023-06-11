@@ -15,6 +15,7 @@ parser.add_argument(
     help="0: all, 1: find zebra crossing, 2: location pedistrain, 3: detect traffic light",
 )
 parser.add_argument("--cam", type=bool, default=False, help="Use camera")
+parser.add_argument("--webcam", type=bool, default=False, help="Use camera")
 parser.add_argument("--video", type=str, default=None, help="Video file path")
 parser.add_argument("--size", type=tuple, default=(640, 640), help="Resize frame")
 parser.add_argument("--save", type=str, default=None, help="Video save path")
@@ -30,6 +31,8 @@ args = parser.parse_args()
 
 if args.cam:
     key = "/dev/video0"
+elif args.webcam:
+    key = 0
 elif args.video:
     key = args.video
 
