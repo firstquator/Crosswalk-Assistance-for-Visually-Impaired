@@ -1,7 +1,9 @@
-
+gtts
 numpy
 Pillow
 opencv-python
 pillow
+pygame
 onnxruntime
 onnxruntime-gpu
+scikit-learn

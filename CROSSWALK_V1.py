@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import math
 import time
+import pygame
 
 # from PIL import Image, ImageFont, ImageDraw
 from sklearn import linear_model
@@ -19,6 +20,13 @@ class HELP_CROSSWALK:
             "conf_thres": 0.2,
             "iou_thres": 0.3,
         },
+        "VOICE": {
+            "freq": 16000,  # Sampling rate, 44100(CD), 16000(Naver TTS), 24000(google TTS)
+            "bitsize": -16,  # Signed 16 bit. support 8,-8,16,-16
+            "channel": 1,  # 1 is mono, 2 is stereo
+            "buffer": 2048,  # number of samples (experiment to get right sound)
+            "tick": 30,
+        },
         "FIND_ZC": {
             "min_region_area_factor": 0.05,
             "max_region_area_factor": 0.1,
@@ -33,7 +41,7 @@ class HELP_CROSSWALK:
             "min_region_area_factor": 0.05,
             "max_region_area_factor": 0.2,
             "hsv_white": [[170, 170, 170], [255, 255, 255]],
-            "erode_rate": 15,
+            "erode_rate": 21,
             "contour_area_thres": 0.010,
             "width_thres": 50,
             "radius_thres": 250,
@@ -64,6 +72,20 @@ class HELP_CROSSWALK:
         "HELP_CROSSWALK": 3,
     }
     HISTORY = {"FIND_ZC": [], "LOCATION_PED": [], "DETECT_TRAFFIC_LIGHT": []}
+    THREAD = {"FIND_ZC": None, "LOCATION_PED": None, "DETECT_TRAFFIC_LIGHT": None}
+    VOICE = {
+        "STOP": "./sound/stop.mp4",
+        "STRAIGHT": "./sound/straight.mp4",
+        "BACK": "./sound/back.mp4",
+        "LEFT": "./sound/left.mp4",
+        "RIGHT": "./sound/right.mp4",
+        "UP": "./sound/up.mp4",
+        "DOWN": "./sound/down.mp4",
+        "UL": "./sound/upleft.mp4",
+        "UR": "./sound/upright.mp4",
+        "DL": "./sound/downleft.mp4",
+        "DR": "./sound/downright.mp4",
+    }
 
     def __init__(self, debug: bool = False):
         self.detector = self.__prepare_yolo()
@@ -78,6 +100,7 @@ class HELP_CROSSWALK:
         elif mode == self.MODE["DETECT_TRAFFIC_LIGHT"]:
             return self.detect_traffic_light(frame)
 
+    ######################## Setter & Getter ########################
     def set_onnx(self, onnx_path: str):
         self.CONFIG["YOLO"]["weight"] = onnx_path
 
@@ -310,13 +333,48 @@ class HELP_CROSSWALK:
             boundedRight[inlier_mask_or],
         )
 
-        ## Compute middle points
-        ransacMiddle = (ransacLeft + ransacRight) // 2
+        # 7. Pruning ransac points
+        positive, negative, length = [], [], []  # /, \
+        for left, right in zip(ransacLeft, ransacRight):
+            angle = self.__angleCalc(left, right)
+            length = self.__l2_distance(left, right)
+            # To match the shape of left and right
+            length = np.array([length, length]).astype(np.int64)
+            line_info = [left, right, length]
+
+            if angle < 0:
+                negative.append(line_info)
+            elif angle > 0:
+                positive.append(line_info)
+
+        main_points = positive if len(positive) >= len(negative) else negative
+        main_points = np.array(main_points)
+
+        if len(main_points) < self.CONFIG["LOCATION_PED"]["min_points"]:
+            return frame
+
+        ## Pruning with angles
+
+        ## Pruning with length
+        lengths = main_points[:, 2]
+        max_length = np.max(lengths)
+        length_thres = max_length // 2
+        length_mask = lengths > length_thres
+
+        ransacLeft, ransacRight = (
+            main_points[:, 0][length_mask[:, 0]],
+            main_points[:, 1][length_mask[:, 0]],
+        )
 
         if len(ransacLeft) < self.CONFIG["LOCATION_PED"]["min_points"]:
             return frame
 
-        # 7. Calculate the intersection point of the bounding lines
+        ################################################################################
+
+        # 8. Calculate the intersection point of the bounding lines
+
+        ## Compute middle points
+        ransacMiddle = (ransacLeft + ransacRight) // 2
 
         ## Unit vector + A point on each line
         vx_M, vy_M, x0_M, y0_M = cv2.fitLine(ransacMiddle, cv2.DIST_L2, 0, 0.01, 0.01)
@@ -328,14 +386,14 @@ class HELP_CROSSWALK:
         x_interpolation = (H - b_M) // m_M
         x_interpolation = int(x_interpolation)
 
-        # 8. Calculate the direction vector
+        # 9. Calculate the direction vector
         Cx = (W - 1) // 2  # Center of the screen
 
-        # 9. Calculate the angle
+        # 10. Calculate the angle
         left, right = ransacLeft[0], ransacRight[0]
         angle = self.__angleCalc(left, right)
 
-        # 10. Control the user directions to get to the correct location.
+        # 11. Control the user directions to get to the correct location.
         history = self.HISTORY["LOCATION_PED"]
         move = ("LEFT", "STOP", "RIGHT")
         turn = ("LEFT", "STOP", "RIGHT")
@@ -350,9 +408,9 @@ class HELP_CROSSWALK:
 
         ## Turn
         if abs(angle) > self.CONFIG["LOCATION_PED"]["safe_angle"]:
-            if angle > 0:
+            if angle < 0:
                 turn_idx = 0
-            elif angle < 0:
+            elif angle > 0:
                 turn_idx = 2
         else:
             turn_idx = 1
@@ -478,6 +536,22 @@ class HELP_CROSSWALK:
         )
 
         return yolo_detector
+
+    def __voice(self, select_voice: str):
+        voice_file = self.VOICE[select_voice.upper()]  # mp3 or mid file
+
+        freq = self.CONFIG["VOICE"]["freq"]
+        bitsize = self.CONFIG["VOICE"]["bitsize"]
+        channels = self.CONFIG["VOICE"]["channels"]
+        buffer = self.CONFIG["VOICE"]["buffer"]
+
+        pygame.mixer.init(freq, bitsize, channels, buffer)
+        pygame.mixer.music.load(voice_file)
+        pygame.mixer.music.play()
+
+        clock = pygame.time.Clock()
+        while pygame.mixer.music.get_busy():
+            clock.tick(self.CONFIG["VOICE"]["tick"])
 
     def __get_detect_info(self, frame: np.ndarray, class_id):
         # 1. Find a zebra-crossing using YOLO.
@@ -624,4 +698,4 @@ class HELP_CROSSWALK:
     def __angleCalc(self, pt1, pt2):
         dx, dy = pt2[0] - pt1[0], pt2[1] - pt1[1]
 
-        return np.degrees(np.arctan2(dy, dx))
+        return np.degrees(np.arctan2(dy, dx)) * -1
