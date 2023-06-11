@@ -12,7 +12,7 @@ parser.add_argument(
     "--mode",
     type=int,
     default=3,
-    help="0: all, 1: find zebra crossing, 2: location pedistrain, 3: detect traffic light",
+    help="0: find zebra crossing, 1: location pedistrain, 2: detect traffic light, 3: all",
 )
 parser.add_argument("--cam", type=bool, default=False, help="Use camera")
 parser.add_argument("--webcam", type=bool, default=False, help="Use camera")
@@ -52,7 +52,7 @@ while cap.isOpened():
         break
 
     frame = cv2.resize(frame, args.size)
-    frame = crosswalk(frame, mode=1)
+    frame = crosswalk(frame, mode=args.mode)
     cv2.imshow("Detected Frame", frame)
 
     if args.save:

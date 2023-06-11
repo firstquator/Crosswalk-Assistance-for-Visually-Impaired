@@ -1,8 +1,8 @@
 import cv2
-import numpy as np
-import math
 import time
 import pygame
+import threading
+import numpy as np
 
 # from PIL import Image, ImageFont, ImageDraw
 from sklearn import linear_model
@@ -23,14 +23,15 @@ class HELP_CROSSWALK:
         "VOICE": {
             "freq": 16000,  # Sampling rate, 44100(CD), 16000(Naver TTS), 24000(google TTS)
             "bitsize": -16,  # Signed 16 bit. support 8,-8,16,-16
-            "channel": 1,  # 1 is mono, 2 is stereo
+            "channels": 1,  # 1 is mono, 2 is stereo
             "buffer": 2048,  # number of samples (experiment to get right sound)
             "tick": 30,
+            "delay": 1,
         },
         "FIND_ZC": {
             "min_region_area_factor": 0.05,
             "max_region_area_factor": 0.1,
-            "iou_thres": 0.2,
+            "iou_thres": 0.1,
             "interval": 50,
             "timer": -1,
             "pause_time": 3,
@@ -64,6 +65,10 @@ class HELP_CROSSWALK:
         "DETECT_TL": {},
     }
 
+    THREAD = {
+        "SOFT": 0,
+        "HARD": 0,
+    }  # Shared variables in threads (0 : Accessible, 1 : Inaccessible)
     CLASS = {"ZC": 0, "RED": 1, "GREEN": 2}
     MODE = {
         "FIND_ZC": 0,
@@ -72,19 +77,28 @@ class HELP_CROSSWALK:
         "HELP_CROSSWALK": 3,
     }
     HISTORY = {"FIND_ZC": [], "LOCATION_PED": [], "DETECT_TRAFFIC_LIGHT": []}
-    THREAD = {"FIND_ZC": None, "LOCATION_PED": None, "DETECT_TRAFFIC_LIGHT": None}
     VOICE = {
-        "STOP": "./sound/stop.mp4",
-        "STRAIGHT": "./sound/straight.mp4",
-        "BACK": "./sound/back.mp4",
-        "LEFT": "./sound/left.mp4",
-        "RIGHT": "./sound/right.mp4",
-        "UP": "./sound/up.mp4",
-        "DOWN": "./sound/down.mp4",
-        "UL": "./sound/upleft.mp4",
-        "UR": "./sound/upright.mp4",
-        "DL": "./sound/downleft.mp4",
-        "DR": "./sound/downright.mp4",
+        # Only Move
+        "STOP": "./sound/stop.mp3",
+        "STRAIGHT": "./sound/straight.mp3",
+        "BACK": "./sound/back.mp3",
+        "LEFT": "./sound/left.mp3",
+        "RIGHT": "./sound/right.mp3",
+        "UP": "./sound/up.mp3",
+        "DOWN": "./sound/down.mp3",
+        "UPLEFT": "./sound/upleft.mp3",
+        "UPRIGHT": "./sound/upright.mp3",
+        "DOWNLEFT": "./sound/downleft.mp3",
+        "DOWNRIGHT": "./sound/downright.mp3",
+        # Move, Turn
+        "LEFTLEFT": "./sound/leftleft.mp3",
+        "LEFTRIGHT": "./sound/leftright.mp3",
+        "RIGHTLEFT": "./sound/rightleft.mp3",
+        "RIGHTRIGHT": "./sound/rightright.mp3",
+        # Traffic light
+        "RED": "./sound/red.mp3",
+        "GREEN": "./sound/green.mp3",
+        "NONE": "./sound/none.mp3",
     }
 
     def __init__(self, debug: bool = False):
@@ -150,7 +164,6 @@ class HELP_CROSSWALK:
         r_H, r_W = crop_region.shape[:2]
 
         f_cy, f_cx = H // 2, W // 2
-        # r_cy, r_cx = r_H // 2, r_W // 2
 
         r_area = r_H * r_W
         if r_area < H * W * self.CONFIG["FIND_ZC"]["min_region_area_factor"]:
@@ -180,14 +193,25 @@ class HELP_CROSSWALK:
         ## To move it to the center, give it orientation information
         alarm = f"MOVE : {UD[ud_idx]} {LR[lr_idx]}"
 
+        ud = UD[ud_idx] if ud_idx != 1 else ""
+        lr = LR[lr_idx] if lr_idx != 1 else ""
+
+        direction = ud + lr
+
         # 2. If the bbox is at center, represent to change mode
         duration = 0
+
+        ## If the bbox is centered and reaches a certain distance, represent to change mode
         if (
             ud_idx == 1
             and lr_idx == 1
-            and r_area > W * H * self.CONFIG["FIND_ZC"]["max_region_area_factor"]
+            and r_area >= W * H * self.CONFIG["FIND_ZC"]["max_region_area_factor"]
         ):
             alarm = "MOVE : STOP"
+            if self.THREAD["HARD"] == 0:
+                voice_thread = self.__set_voice_thread("STOP", strength="HARD")
+                voice_thread.start()
+
             if self.CONFIG["FIND_ZC"]["timer"] == -1:
                 self.CONFIG["FIND_ZC"]["timer"] = time.time()
             else:
@@ -195,8 +219,21 @@ class HELP_CROSSWALK:
                 if duration > self.CONFIG["FIND_ZC"]["pause_time"]:
                     self.cur_mode = self.MODE["LOCATION_PED"]
                     self.HISTORY["FIND_ZC"].clear()
+
+        ## If the bbox is centered and has not reached a certain distance, tell it to go straight.
+        elif (
+            ud_idx == 1
+            and lr_idx == 1
+            and r_area < W * H * self.CONFIG["FIND_ZC"]["max_region_area_factor"]
+        ):
+            if self.THREAD["SOFT"] == 0:
+                voice_thread = self.__set_voice_thread("STRAIGHT")
+                voice_thread.start()
         else:
             self.CONFIG["FIND_ZC"]["timer"] = -1
+            if self.THREAD["SOFT"] == 0:
+                voice_thread = self.__set_voice_thread(direction)
+                voice_thread.start()
 
         # [ DEBUG ]
         if self.debug:
@@ -369,8 +406,6 @@ class HELP_CROSSWALK:
         if len(ransacLeft) < self.CONFIG["LOCATION_PED"]["min_points"]:
             return frame
 
-        ################################################################################
-
         # 8. Calculate the intersection point of the bounding lines
 
         ## Compute middle points
@@ -415,11 +450,21 @@ class HELP_CROSSWALK:
         else:
             turn_idx = 1
 
-        ## Control User (Speaker)
+        ## Control User (Voice)
         duration = 0
+        mv = move[move_idx] if move_idx != 1 else ""
+        tr = turn[turn_idx] if turn_idx != 1 else ""
+        motion = mv + tr
+
         if move_idx == 1 and turn_idx == 1:
+            ### Tell it to stop (Voice)
+            if self.THREAD["HARD"] == 0:
+                voice_thread = self.__set_voice_thread("STOP", strength="HARD")
+                voice_thread.start()
+
             if self.CONFIG["LOCATION_PED"]["timer"] == -1:
                 self.CONFIG["LOCATION_PED"]["timer"] = time.time()
+
             else:
                 duration = round(time.time() - self.CONFIG["LOCATION_PED"]["timer"], 3)
                 if duration > self.CONFIG["LOCATION_PED"]["pause_time"]:
@@ -427,6 +472,9 @@ class HELP_CROSSWALK:
                     self.HISTORY["LOCATION_PED"].clear()
         else:
             self.CONFIG["LOCATION_PED"]["timer"] = -1
+            if self.THREAD["SOFT"] == 0:
+                voice_thread = self.__set_voice_thread(motion)
+                voice_thread.start()
 
         # [ DEBUG ]
         if self.debug:
@@ -537,7 +585,11 @@ class HELP_CROSSWALK:
 
         return yolo_detector
 
-    def __voice(self, select_voice: str):
+    def __voice(self, select_voice: str, strength):
+        self.THREAD[strength] = 1
+        if strength == "HARD":
+            self.THREAD["SOFT"] = 1
+
         voice_file = self.VOICE[select_voice.upper()]  # mp3 or mid file
 
         freq = self.CONFIG["VOICE"]["freq"]
@@ -552,6 +604,21 @@ class HELP_CROSSWALK:
         clock = pygame.time.Clock()
         while pygame.mixer.music.get_busy():
             clock.tick(self.CONFIG["VOICE"]["tick"])
+
+        if strength == "HARD":
+            time.sleep(self.CONFIG["FIND_ZC"]["pause_time"])
+        elif strength == "SOFT":
+            time.sleep(self.CONFIG["VOICE"]["delay"])
+
+        self.THREAD[strength] = 0
+        if strength == "HARD":
+            self.THREAD["SOFT"] = 0
+
+    def __set_voice_thread(self, select_voice: str, strength: str = "SOFT"):
+        return threading.Thread(
+            target=self.__voice,
+            kwargs={"select_voice": select_voice, "strength": strength},
+        )
 
     def __get_detect_info(self, frame: np.ndarray, class_id):
         # 1. Find a zebra-crossing using YOLO.

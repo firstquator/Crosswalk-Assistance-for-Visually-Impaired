@@ -8,12 +8,13 @@ import pygame
 
 class Voice:
     t = None
+    t2 = None
 
     def __init__(self):
-        self.set_thread()
+        self.set_thread("./sound/left.mp3")
 
-    def voice(self):
-        music_file = "sample.mp3"  # mp3 or mid file
+    def voice(self, file):
+        music_file = file  # mp3 or mid file
 
         freq = 16000  # sampling rate, 44100(CD), 16000(Naver TTS), 24000(google TTS)
         bitsize = -16  # signed 16 bit. support 8,-8,16,-16
@@ -28,14 +29,17 @@ class Voice:
         while pygame.mixer.music.get_busy():
             clock.tick(30)
 
-    def set_thread(self):
-        self.t = threading.Thread(target=self.voice)
+    def set_thread(self, file):
+        self.t = threading.Thread(target=self.voice, kwargs={"file": file})
 
     def run(self):
         self.t.start()
 
 
 v = Voice()
-
-for i in range(1000):
-    v.run()
+v.run()
+for i in range(5000):
+    print(i)
+    if i == 1100:
+        v.set_thread("./sound/right.mp3")
+        v.run()
