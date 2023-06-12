@@ -113,6 +113,8 @@ class HELP_CROSSWALK:
             return self.location_ped(frame)
         elif mode == self.MODE["DETECT_TRAFFIC_LIGHT"]:
             return self.detect_traffic_light(frame)
+        elif mode == self.MODE["HELP_CROSSWALK"]:
+            return self.help_crosswalk(frame)
 
     ######################## Setter & Getter ########################
     def set_onnx(self, onnx_path: str):

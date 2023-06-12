@@ -7,7 +7,7 @@ from CROSSWALK_V1 import HELP_CROSSWALK
 # C:\Projects\help_crosswalk\Datasets\Demo_videos\crosswalk_02.mp4
 
 parser = argparse.ArgumentParser(description="HELP_CROSSWALK")
-parser.add_argument("--debug", type=bool, default=True, help="Debugging mode")
+
 parser.add_argument(
     "--mode",
     type=int,
@@ -26,9 +26,10 @@ parser.add_argument("--fps", type=float, default=20.0, help="Video FPS")
 parser.add_argument(
     "--onnx", type=str, default="./YOLO/models/crosswalk_n.onnx", help="Onnx path"
 )
+parser.add_argument("--debug", type=bool, default=False, help="Debugging mode")
 
 args = parser.parse_args()
-
+print(args)
 if args.cam:
     key = "/dev/video0"
 elif args.webcam:
