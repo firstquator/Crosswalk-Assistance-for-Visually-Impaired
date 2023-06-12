@@ -4,7 +4,7 @@ import argparse
 import numpy as np
 from CROSSWALK_V1 import HELP_CROSSWALK
 
-# C:\Projects\help_crosswalk\Datasets\Demo_videos\crosswalk_02.mp4
+# ./demo/crosswalk_02.mp4
 
 parser = argparse.ArgumentParser(description="HELP_CROSSWALK")
 
@@ -27,15 +27,18 @@ parser.add_argument(
     "--onnx", type=str, default="./YOLO/models/crosswalk_n.onnx", help="Onnx path"
 )
 parser.add_argument("--debug", type=bool, default=False, help="Debugging mode")
+parser.add_argument("--demo", type=bool, default=False, help="Debugging mode")
 
 args = parser.parse_args()
-print(args)
+
 if args.cam:
     key = "/dev/video0"
 elif args.webcam:
     key = 0
 elif args.video:
     key = args.video
+elif args.deom:
+    key = "./demo/crosswalk_02.mp4"
 
 cap = cv2.VideoCapture(key)
 crosswalk = HELP_CROSSWALK(debug=args.debug)
