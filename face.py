@@ -16,6 +16,11 @@ count = 0
 regist = False
 read = False
 unknown_count = 0
+top = 0
+bottom = 0
+right = 0
+left = 0
+name = ""
 
 
 def face_recog():
@@ -26,7 +31,7 @@ def face_recog():
     global regist
     global read
     global unknown_count
-
+    global top, right, left, bottom, name
     # cap = cv.VideoCapture(0) # webcam 사용
     # cap = cv.videoCapture(1) # Camera use
     # cap = cv.VideoCapture(gstreamer_pipeline(flip_method=0), cv.CAP_GSTREAMER)
@@ -73,6 +78,7 @@ def face_recog():
     centerY = 0
     recognized_name = {}
     unknown_count = 0
+    noface_counter = 0
     # cv.imshow('face_recognition', main_frame)
 
     # print("Camera on")
@@ -104,6 +110,7 @@ def face_recog():
                 )
                 count = count - 1
                 os.remove("face_recognition/" + str(count + 1) + ".jpg")
+                regist = False
             else:
                 f = open("face_recognition/names.txt", "a")
                 data = input("이름 : ")
@@ -118,7 +125,7 @@ def face_recog():
                 )
                 data = str(data) + "\n"
                 f.write(data)
-            regist = False
+                regist = False
 
         # t key => capture for read
         if read:
@@ -131,14 +138,22 @@ def face_recog():
             speak(text)
             read = False
 
-        if process_this_frame == 15:
+        if process_this_frame == 8:
             process_this_frame = 0
-            img_color_for_encoding = cv.resize(img_color, (0, 0), fx=0.5, fy=0.5)
+            img_color_for_encoding = cv.resize(img_color, (0, 0), fx=0.25, fy=0.25)
             img_for_capture = cv.resize(img_color, (0, 0), fx=1.0, fy=1.0)
             rgb_img = img_color_for_encoding[:, :, ::-1]
             rgb_img = np.array(rgb_img)
             face_locations = face_recognition.face_locations(rgb_img)
             face_encodings = face_recognition.face_encodings(rgb_img, face_locations)
+
+            if face_encodings == []:
+                noface_counter += 1
+
+            if noface_counter >= 35:
+                print("No face found.")
+                speak("No face found.")
+                noface_counter = 0
             """
             centerX, centerY = 0, 0
             if face_locations:
@@ -158,7 +173,8 @@ def face_recog():
                     known_face_encodings, face_encoding
                 )
                 best_match_index = np.argmin(face_distances)
-                # print(face_distances)
+                print(face_distances)
+                noface_counter = 0
 
                 if face_distances[best_match_index] < 0.4:
                     name = known_face_names[best_match_index]
@@ -218,21 +234,20 @@ def face_recog():
         # else:
         #    process_this_frame = 0
 
-        # for (top, right, bottom, left), name in zip(face_locations, face_names):
-        # 인코딩에 사용한 이미지가 1/16사이즈였으므로 원본이미지상에서 얼굴위치 표시 시, 4배해주어야 함
-        #     top *= 2
-        #    right *= 2
-        #    bottom *= 2
-        #    left *= 2
+        for (top, right, bottom, left), name in zip(face_locations, face_names):
+            top *= 4
+            right *= 4
+            bottom *= 4
+            left *= 4
 
-        # 얼굴 Box 그리기
-        #    cv.rectangle(img_color, (left, top), (right, bottom), (0, 0, 255), 2)
+            # 얼굴 Box 그리기
+            # cv.rectangle(main_frame, (left, top), (right, bottom), (0, 0, 255), 2)
 
-        # # 이름 쓰기
-        #    cv.rectangle(img_color, (left, bottom - 35), (right, bottom), (0, 0, 255), cv.FILLED)
-        #    font = cv.FONT_HERSHEY_DUPLEX
-        #    cv.putText(img_color, name, (left + 6, bottom - 6), font, 1.0, (255, 255, 255), 1)
-        #    speak(name)
+            # 이름 쓰기
+            # cv.rectangle(main_frame, (left, bottom - 35), (right, bottom), (0, 0, 255), cv.FILLED)
+            # font = cv.FONT_HERSHEY_DUPLEX
+            # cv.putText(main_frame, name, (left + 6, bottom - 6), font, 1.0, (255, 255, 255), 1)
+            # speak(name)
 
         # cv.imshow('face_recognition', img_color)
 
@@ -250,6 +265,7 @@ def streaming():
     global regist
     global read
     global uknown_count
+    global top, bottom, right, left, name
 
     cap = cv.VideoCapture("/dev/video0", cv.CAP_V4L2)
     cap.set(cv.CAP_PROP_FRAME_WIDTH, 1280)
@@ -263,6 +279,19 @@ def streaming():
     face_start_key = True
 
     while ret:
+        # 얼굴 Box 그리기
+        cv.rectangle(main_frame, (left, top), (right, bottom), (0, 0, 255), 2)
+
+        # 이름 쓰기
+        cv.rectangle(
+            main_frame, (left, bottom - 35), (right, bottom), (0, 0, 255), cv.FILLED
+        )
+        font = cv.FONT_HERSHEY_DUPLEX
+        cv.putText(
+            main_frame, name, (left + 6, bottom - 6), font, 1.0, (255, 255, 255), 1
+        )
+        # speak(name)
+
         cv.imshow("streaming", main_frame)
         ret, main_frame = cap.read()
         frame_num += 1
@@ -276,42 +305,25 @@ def streaming():
         elif key & 0xFF == 116:
             read = True
 
-        # r 키 누르면 등록
-        elif key & 0xFF == 114:
-            img_color = main_frame.copy()
-            img_for_capture = cv.resize(img_color, (0, 0), fx=1.0, fy=1.0)
-            img_capture = cv.imwrite(
-                "face_recognition/" + str(count + 1) + ".jpg", img_for_capture
-            )
-            count = count + 1
-            face_locations = face_recognition.face_locations(
-                face_recognition.load_image_file(
-                    "face_recognition/" + str(count) + ".jpg"
-                )
-            )
-            # 얼굴이 없거나, 얼굴이 여러 개
-            if len(face_locations) != 1:
-                print(
-                    "I found {} face(s) in this photograph. so capture canceled.".format(
-                        len(face_locations)
-                    )
-                )
-                count = count - 1
-                os.remove("face_recognition/" + str(count + 1) + ".jpg")
-            else:
-                f = open("face_recognition/names.txt", "a")
-                data = input("이름 : ")
-                known_face_names.append(str(data))
-                img_list.append(
-                    face_recognition.load_image_file(
-                        "face_recognition/" + str(count) + ".jpg"
-                    )
-                )
-                known_face_encodings.append(
-                    face_recognition.face_encodings(img_list[count - 1])[0]
-                )
-                data = str(data) + "\n"
-                f.write(data)
+        # # r 키 누르면 등록
+        # elif key & 0xFF == 114:
+        #     img_color = main_frame.copy()
+        #     img_for_capture = cv.resize(img_color, (0, 0), fx=1.0, fy=1.0)
+        #     img_capture = cv.imwrite('face_recognition/'+str(count+1) + '.jpg', img_for_capture)
+        #     count = count + 1
+        #     face_locations = face_recognition.face_locations(face_recognition.load_image_file('face_recognition/'+str(count) + '.jpg'))
+        #     if len(face_locations) != 1:
+        #         print("I found {} face(s) in this photograph. so capture canceled.".format(len(face_locations)))
+        #         count = count - 1
+        #         os.remove('face_recognition/'+str(count+1) + '.jpg')
+        #     else:
+        #         f = open("face_recognition/names.txt", 'a')
+        #         data = input("이름 : ")
+        #         known_face_names.append(str(data))
+        #         img_list.append(face_recognition.load_image_file('face_recognition/'+str(count)+'.jpg'))
+        #         known_face_encodings.append(face_recognition.face_encodings(img_list[count-1])[0])
+        #         data = str(data) + '\n'
+        #         f.write(data)
 
 
 def main():

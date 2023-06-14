@@ -35,14 +35,17 @@ args = parser.parse_args()
 
 if args.cam:
     key = "/dev/video0"
+    cap = cv2.VideoCapture(key, cv2.CAP_V4L2)
 elif args.webcam:
     key = 0
+    cap = cv2.VideoCapture(key)
 elif args.video:
     key = args.video
+    cap = cv2.VideoCapture(key)
 elif args.demo:
     key = "./Demo/crosswalk_02.mp4"
+    cap = cv2.VideoCapture(key)
 
-cap = cv2.VideoCapture(key)
 cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)
 crosswalk = HELP_CROSSWALK(debug=args.debug, voice=args.voice)
 crosswalk.set_onnx(onnx_path=args.onnx)

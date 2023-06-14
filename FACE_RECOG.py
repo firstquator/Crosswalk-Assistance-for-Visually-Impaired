@@ -13,10 +13,10 @@ from collections import OrderedDict
 class FACE_RECOG:
     CONFIG = {
         "database_dir": "./FACE_LIST/",
-        "sound_dir": "./sound/face/",
+        "sound_dir": "./sound/face_recog/",
         "capture_size": {"fx": 1.0, "fy": 1.0},
         "recog_size": {"fx": 0.25, "fy": 0.25},
-        "distance_thres": 0.4,
+        "distance_thres": 0.3,
         "process_frame": 8,
         "check_face": 5,
         "voice_interval": 1.2,
@@ -32,17 +32,17 @@ class FACE_RECOG:
         self.__loading()
 
     def __call__(self, frame, frame_num, key):
-        self.face_recognition(self, frame, frame_num, key=key)
+        return self.face_recognition(self, frame, frame_num, key=key)
 
     def face_recognition(self, frame, frame_num, key=None):
         if key & 0xFF == 114:  # R
             if self.THREAD["register"] == 0:
                 register = self.__set_thread(
-                    target=self.__register, kwards_dict={"frame": frame}
+                    target=self.__register, kwargs_dict={"frame": frame}
                 )
                 register.start()
 
-        self.__recognition(frame, frame_num)
+        return self.__recognition(frame, frame_num)
 
     def set_config(self, param, kwards):
         self.CONFIG[param] = kwards
@@ -102,15 +102,24 @@ class FACE_RECOG:
         face_locations = face.face_locations(image)
         face_encodings = face.face_encodings(image, face_locations)
 
+        if len(face_locations) == 0:
+            if self.THREAD["voice"] == 0:
+                voice_thread = self.__set_thread(
+                    target=self.__voice, kwargs_dict={"name_list": ["no_face_find"]}
+                )
+                voice_thread.start()
+
+            return frame
+
         recognized_face = []
         for encoding in face_encodings:
-            distance = face.face_distance(list(self.encoding.values()), encoding)
-            match_idx = np.armin(distance)
+            name = "unknown"
+            if len(self.encoding) != 0:
+                distance = face.face_distance(list(self.encoding.values()), encoding)
+                match_idx = np.armin(distance)
 
-            if distance[match_idx] < self.CONFIG["distance_thres"]:
-                name = list(self.encoding.keys())[match_idx]
-            else:
-                name = "unknown"
+                if distance[match_idx] < self.CONFIG["distance_thres"]:
+                    name = list(self.encoding.keys())[match_idx]
 
             if name not in self.CHECK:
                 self.CHECK[name] = 1
@@ -124,46 +133,39 @@ class FACE_RECOG:
                     self.CHECK[name] = 0
 
         # Speak
-        if len(face_locations) == 0:
-            if self.THREAD["voice"] == 0:
-                voice_thread = self.__set_thread(
-                    target=self.__voice, kwards_dict={"name_list": ["no_face_find"]}
+        if self.THREAD["voice"] == 0:
+            voice_thread = self.__set_thread(
+                target=self.__voice, kwargs_dict={"name_list": recognized_face}
+            )
+            voice_thread.start()
+
+        if self.debug:
+            if len(recognized_face) == 0:
+                return frame
+
+            for bbox, name in zip(face_locations, recognized_face):
+                # Rescaling
+                bbox = bbox * 1 / self.CONFIG["recog_size"]["fx"]
+
+                # Draw bbox
+                top, right, bottom, left = bbox
+                cv2.rectange(frame, (left, top), (right, bottom), (0, 0, 255), 2)
+                cv2.rectange(
+                    frame,
+                    (left, bottom - 35),
+                    (right, bottom),
+                    (0, 0, 255),
+                    cv2.FILLED,
                 )
-                voice_thread.start()
-        else:
-            if self.THREAD["voice"] == 0:
-                voice_thread = self.__set_thread(
-                    target=self.__voice, kwards_dict={"name_list": recognized_face}
+                cv2.putText(
+                    frame,
+                    name,
+                    (left + 6, bottom + 6),
+                    cv2.FONT_HERSHEY_DUPLEX,
+                    1.0,
+                    (255, 255, 255),
+                    1,
                 )
-                voice_thread.start()
-
-            if self.debug:
-                if len(recognized_face) == 0:
-                    return frame
-
-                for bbox, name in zip(face_locations, recognized_face):
-                    # Rescaling
-                    bbox = bbox * 1 / self.CONFIG["recog_size"]["fx"]
-
-                    # Draw bbox
-                    top, right, bottom, left = bbox
-                    cv2.rectange(frame, (left, top), (right, bottom), (0, 0, 255), 2)
-                    cv2.rectange(
-                        frame,
-                        (left, bottom - 35),
-                        (right, bottom),
-                        (0, 0, 255),
-                        cv2.FILLED,
-                    )
-                    cv2.putText(
-                        frame,
-                        name,
-                        (left + 6, bottom + 6),
-                        cv2.FONT_HERSHEY_DUPLEX,
-                        1.0,
-                        (255, 255, 255),
-                        1,
-                    )
 
         return frame
 
@@ -195,5 +197,5 @@ class FACE_RECOG:
 
         self.THREAD["voice"] = 0
 
-    def __set_thread(self, target, kwards_dict):
-        return threading.Thread(target=target, kwards=kwards_dict)
+    def __set_thread(self, target, kwargs_dict):
+        return threading.Thread(target=target, kwargs=kwargs_dict)
