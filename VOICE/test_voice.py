@@ -11,7 +11,7 @@ class Voice:
     t2 = None
 
     def __init__(self):
-        self.set_thread("./sound/left.mp3")
+        self.set_thread("../sound/left.mp3")
 
     def voice(self, file):
         music_file = file  # mp3 or mid file

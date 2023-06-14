@@ -9,7 +9,7 @@ parser.add_argument(
 parser.add_argument(
     "--save_path",
     type=str,
-    default="./sound",
+    default="../sound",
     help="Path to save voice files.",
 )
 parser.add_argument(

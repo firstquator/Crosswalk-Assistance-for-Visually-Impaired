@@ -80,26 +80,26 @@ class HELP_CROSSWALK:
     HISTORY = {"FIND_ZC": [], "LOCATION_PED": [], "DETECT_TL": []}
     VOICE = {
         # Only Move
-        "STOP": "./sound/stop.mp3",
-        "STRAIGHT": "./sound/straight.mp3",
-        "BACK": "./sound/back.mp3",
-        "LEFT": "./sound/left.mp3",
-        "RIGHT": "./sound/right.mp3",
-        "UP": "./sound/up.mp3",
-        "DOWN": "./sound/down.mp3",
-        "UPLEFT": "./sound/upleft.mp3",
-        "UPRIGHT": "./sound/upright.mp3",
-        "DOWNLEFT": "./sound/downleft.mp3",
-        "DOWNRIGHT": "./sound/downright.mp3",
+        "STOP": "./sound/crosswalk/stop.mp3",
+        "STRAIGHT": "./sound/crosswalk/straight.mp3",
+        "BACK": "./sound/crosswalk/back.mp3",
+        "LEFT": "./sound/crosswalk/left.mp3",
+        "RIGHT": "./sound/crosswalk/right.mp3",
+        "UP": "./sound/crosswalk/up.mp3",
+        "DOWN": "./sound/crosswalk/down.mp3",
+        "UPLEFT": "./sound/crosswalk/upleft.mp3",
+        "UPRIGHT": "./sound/crosswalk/upright.mp3",
+        "DOWNLEFT": "./sound/crosswalk/downleft.mp3",
+        "DOWNRIGHT": "./sound/crosswalk/downright.mp3",
         # Move, Turn
-        "LEFTLEFT": "./sound/leftleft.mp3",
-        "LEFTRIGHT": "./sound/leftright.mp3",
-        "RIGHTLEFT": "./sound/rightleft.mp3",
-        "RIGHTRIGHT": "./sound/rightright.mp3",
+        "LEFTLEFT": "./sound/crosswalk/leftleft.mp3",
+        "LEFTRIGHT": "./sound/crosswalk/leftright.mp3",
+        "RIGHTLEFT": "./sound/crosswalk/rightleft.mp3",
+        "RIGHTRIGHT": "./sound/crosswalk/rightright.mp3",
         # Traffic light
-        "RED": "./sound/red.mp3",
-        "GREEN": "./sound/green.mp3",
-        "NONE": "./sound/none.mp3",
+        "RED": "./sound/crosswalk/red.mp3",
+        "GREEN": "./sound/crosswalk/green.mp3",
+        "NONE": "./sound/crosswalk/none.mp3",
     }
 
     def __init__(self, debug: bool = False, voice: bool = True):
