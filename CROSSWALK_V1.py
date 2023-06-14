@@ -1,6 +1,6 @@
+import os
 import cv2
 import time
-import pygame
 import threading
 import numpy as np
 
@@ -53,16 +53,22 @@ class HELP_CROSSWALK:
             "pause_time": 3,
             "debug_color_dict": {
                 "font_color": (0, 0, 0),
-                "connect_lines": (212, 250, 252),
-                "left_points": (184, 231, 225),
-                "right_points": (189, 205, 214),
-                "center_points": (241, 247, 181),
-                "frame_center": (250, 220, 100),
-                "x_interpolation": (250, 250, 175),
-                "safety_zones": (138, 138, 253),
+                "connect_lines": (34, 190, 242),
+                "left_points": (39, 151, 242),
+                "right_points": (39, 151, 242),
+                "center_points": (61, 76, 242),
+                "frame_center": (100, 220, 250),
+                "x_interpolation": (96, 0, 255),
+                "safety_zones": (255, 121, 0),
             },
         },
-        "DETECT_TL": {},
+        "DETECT_TL": {
+            "cumulative_light": 5,
+            "class_rate": 0.8,
+            "debug_color_dict": {
+                "font_color": (0, 0, 0),
+            },
+        },
     }
 
     THREAD = {
@@ -76,7 +82,7 @@ class HELP_CROSSWALK:
         "DETECT_TRAFFIC_LIGHT": 2,
         "HELP_CROSSWALK": 3,
     }
-    HISTORY = {"FIND_ZC": [], "LOCATION_PED": [], "DETECT_TRAFFIC_LIGHT": []}
+    HISTORY = {"FIND_ZC": [], "LOCATION_PED": [], "DETECT_TL": []}
     VOICE = {
         # Only Move
         "STOP": "./sound/stop.mp3",
@@ -101,10 +107,11 @@ class HELP_CROSSWALK:
         "NONE": "./sound/none.mp3",
     }
 
-    def __init__(self, debug: bool = False):
+    def __init__(self, debug: bool = False, voice: bool = True):
         self.detector = self.__prepare_yolo()
         self.cur_mode = self.MODE["FIND_ZC"]
         self.debug = debug
+        self.voice = voice
 
     def __call__(self, frame: np.ndarray, mode: int = 3):
         if mode == self.MODE["FIND_ZC"]:
@@ -210,7 +217,7 @@ class HELP_CROSSWALK:
             and r_area >= W * H * self.CONFIG["FIND_ZC"]["max_region_area_factor"]
         ):
             alarm = "MOVE : STOP"
-            if self.THREAD["HARD"] == 0:
+            if self.voice and self.THREAD["HARD"] == 0:
                 voice_thread = self.__set_voice_thread("STOP", strength="HARD")
                 voice_thread.start()
 
@@ -228,12 +235,12 @@ class HELP_CROSSWALK:
             and lr_idx == 1
             and r_area < W * H * self.CONFIG["FIND_ZC"]["max_region_area_factor"]
         ):
-            if self.THREAD["SOFT"] == 0:
+            if self.voice and self.THREAD["SOFT"] == 0:
                 voice_thread = self.__set_voice_thread("STRAIGHT")
                 voice_thread.start()
         else:
             self.CONFIG["FIND_ZC"]["timer"] = -1
-            if self.THREAD["SOFT"] == 0:
+            if self.voice and self.THREAD["SOFT"] == 0:
                 voice_thread = self.__set_voice_thread(direction)
                 voice_thread.start()
 
@@ -460,7 +467,7 @@ class HELP_CROSSWALK:
 
         if move_idx == 1 and turn_idx == 1:
             ### Tell it to stop (Voice)
-            if self.THREAD["HARD"] == 0:
+            if self.voice and self.THREAD["HARD"] == 0:
                 voice_thread = self.__set_voice_thread("STOP", strength="HARD")
                 voice_thread.start()
 
@@ -474,7 +481,7 @@ class HELP_CROSSWALK:
                     self.HISTORY["LOCATION_PED"].clear()
         else:
             self.CONFIG["LOCATION_PED"]["timer"] = -1
-            if self.THREAD["SOFT"] == 0:
+            if self.voice and self.THREAD["SOFT"] == 0:
                 voice_thread = self.__set_voice_thread(motion)
                 voice_thread.start()
 
@@ -570,7 +577,63 @@ class HELP_CROSSWALK:
         return frame
 
     def detect_traffic_light(self, frame: np.ndarray):
-        pass
+        # Obtain the required parameters.
+        bbox_red = self.__get_detect_info(frame, class_id=self.CLASS["RED"])
+        bbox_green = self.__get_detect_info(frame, class_id=self.CLASS["GREEN"])
+
+        light_class = ("RED", "GREEN", "NONE")
+
+        if bbox_red:
+            light_idx = 0
+        elif bbox_green:
+            light_idx = 1
+        else:
+            light_idx = 2
+
+        traffic_light = None
+        cumulate = self.HISTORY["DETECT_TL"]
+
+        if len(cumulate) > self.CONFIG["DETECT_TL"]["cumulative_light"]:
+            most_class = max(set(cumulate), key=cumulate.count)
+            num_of_class = cumulate.count(most_class)
+            if (
+                num_of_class
+                > self.CONFIG["DETECT_TL"]["cumulative_light"]
+                * self.CONFIG["DETECT_TL"]["class_rate"]
+            ):
+                traffic_light = light_class[most_class]
+                if self.voice and self.THREAD["HARD"] == 0:
+                    voice_thread = self.__set_voice_thread(
+                        traffic_light, strength="HARD"
+                    )
+                    voice_thread.start()
+                cumulate.clear()
+                traffic_light = None
+            else:
+                cumulate.clear()
+                return frame
+
+        else:
+            cumulate.append(light_idx)
+
+        # [ DEBUG ]
+        if self.debug:
+            if traffic_light == None:
+                light_name = light_class[light_idx]
+            else:
+                light_name = traffic_light
+            cv2.putText(
+                frame,
+                light_name,
+                (10, 50),  # (x, y)
+                cv2.FONT_HERSHEY_PLAIN,
+                1,
+                self.CONFIG["DETECT_TL"]["debug_color_dict"]["font_color"],
+                2,
+                cv2.LINE_AA,
+            )
+
+        return frame
 
     ########################## Private Functions ##########################
     def __prepare_yolo(self):
@@ -594,18 +657,7 @@ class HELP_CROSSWALK:
 
         voice_file = self.VOICE[select_voice.upper()]  # mp3 or mid file
 
-        freq = self.CONFIG["VOICE"]["freq"]
-        bitsize = self.CONFIG["VOICE"]["bitsize"]
-        channels = self.CONFIG["VOICE"]["channels"]
-        buffer = self.CONFIG["VOICE"]["buffer"]
-
-        pygame.mixer.init(freq, bitsize, channels, buffer)
-        pygame.mixer.music.load(voice_file)
-        pygame.mixer.music.play()
-
-        clock = pygame.time.Clock()
-        while pygame.mixer.music.get_busy():
-            clock.tick(self.CONFIG["VOICE"]["tick"])
+        os.system("mpg123 " + voice_file)
 
         if strength == "HARD":
             time.sleep(self.CONFIG["FIND_ZC"]["pause_time"])

@@ -27,7 +27,9 @@ parser.add_argument(
     "--onnx", type=str, default="./YOLO/models/crosswalk_n.onnx", help="Onnx path"
 )
 parser.add_argument("--debug", type=bool, default=False, help="Debugging mode")
+parser.add_argument("--voice", type=bool, default=True, help="Voice control")
 parser.add_argument("--demo", type=bool, default=False, help="Debugging mode")
+
 
 args = parser.parse_args()
 
@@ -37,11 +39,12 @@ elif args.webcam:
     key = 0
 elif args.video:
     key = args.video
-elif args.deom:
-    key = "./demo/crosswalk_02.mp4"
+elif args.demo:
+    key = "./Demo/crosswalk_02.mp4"
 
 cap = cv2.VideoCapture(key)
-crosswalk = HELP_CROSSWALK(debug=args.debug)
+cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)
+crosswalk = HELP_CROSSWALK(debug=args.debug, voice=args.voice)
 crosswalk.set_onnx(onnx_path=args.onnx)
 
 if args.save:
