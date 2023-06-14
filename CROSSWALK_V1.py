@@ -21,11 +21,6 @@ class HELP_CROSSWALK:
             "iou_thres": 0.3,
         },
         "VOICE": {
-            "freq": 16000,  # Sampling rate, 44100(CD), 16000(Naver TTS), 24000(google TTS)
-            "bitsize": -16,  # Signed 16 bit. support 8,-8,16,-16
-            "channels": 1,  # 1 is mono, 2 is stereo
-            "buffer": 2048,  # number of samples (experiment to get right sound)
-            "tick": 30,
             "delay": 1,
         },
         "FIND_ZC": {
