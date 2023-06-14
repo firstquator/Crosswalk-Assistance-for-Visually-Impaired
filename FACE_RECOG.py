@@ -143,6 +143,9 @@ class FACE_RECOG:
             if len(recognized_face) == 0:
                 return frame
 
+            rng = np.random.default_rng(3)
+            colors = rng.uniform(0, 255, size=(len(face_locations), 3))
+
             for bbox, name in zip(face_locations, recognized_face):
                 # Rescaling
                 bbox = bbox * 1 / self.CONFIG["recog_size"]["fx"]
