@@ -13,45 +13,153 @@ from collections import OrderedDict
 class FACE_RECOG:
     CONFIG = {
         "database_dir": "./FACE_LIST/",
-        "sound_dir": "./sound/face_recog/",
+        "sound_dir": "./Sound/face_recog",
         "capture_size": {"fx": 1.0, "fy": 1.0},
         "recog_size": {"fx": 0.25, "fy": 0.25},
         "distance_thres": 0.3,
         "process_frame": 8,
         "check_face": 5,
+        "check_no_face": 35,
         "voice_interval": 1.2,
         "voice_delay": 3,
     }
 
-    CHECK = {"location_list": []}
-    THREAD = {"voice": 0, "register": 0}
+    CHECK = {}
+    THREAD = {"voice": 1, "register": 0}
+    LOCATION = 0
+    NO_FACE = 0
 
-    def __init__(self, debug=False):
-        self.debug = debug
-        self.encoding = None
+    def __init__(self, args):
+        self.args = args
+        self.debug = args.debug
+        self.encoding = {}
+        self.frame = None
+        self.frame_num = 0
+        self.key = -1
+        self.regist = False
+        self.recognized_face = []
+
         self.__loading()
 
-    def __call__(self, frame, frame_num, key):
-        return self.face_recognition(self, frame, frame_num, key=key)
+    def start(self):
+        streaming = self.__set_thread(
+            target=self.__streaming, kwargs_dict={"args": self.args}
+        )
+        recognition = self.__set_thread(target=self.__face_recognition)
 
-    def face_recognition(self, frame, frame_num, key=None):
-        if key & 0xFF == 114:  # R
-            if self.THREAD["register"] == 0:
-                register = self.__set_thread(
-                    target=self.__register, kwargs_dict={"frame": frame}
-                )
-                register.start()
+        streaming.start()
+        recognition.start()
 
-        return self.__recognition(frame, frame_num)
+        recognition.join()
+        streaming.join()
+
+        cv2.destroyAllWindows()
 
     def set_config(self, param, kwards):
         self.CONFIG[param] = kwards
 
     ########################## Private Functions ##########################
-    def __register(self, frame):
-        self.THREAD["register"] = 1
+    def __streaming(self, args):
+        if args.cam:
+            key = "/dev/video0"
+            cap = cv2.VideoCapture(key, cv2.CAP_V4L2)
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+        elif args.webcam:
+            key = 0
+            cap = cv2.VideoCapture(key)
+        elif args.video:
+            key = args.video
+            cap = cv2.VideoCapture(key)
 
-        image = frame.copy()
+        cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)
+
+        if args.save:
+            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+            out = cv2.VideoWriter(
+                f"{os.path.join(args.save, args.save_name)}",
+                fourcc,
+                args.fps,
+                args.size,
+            )
+
+        while cap.isOpened():
+            ret, self.frame = cap.read()
+
+            self.key = cv2.waitKey(25)
+            if self.debug:
+                if len(self.recognized_face) == 0:
+                    count_list = [
+                        self.CONFIG["process_frame"] * v["val"][0] + v["val"][-1]
+                        for v in self.CHECK.values()
+                    ]
+                    if len(count_list) != 0:
+                        max_count = max(count_list)
+                        name_list = self.CHECK.keys()
+                        for idx, name in enumerate(name_list):
+                            if count_list[idx] < max_count:
+                                del self.CHECK[name]
+                            else:
+                                if name not in self.recognized_face:
+                                    self.recognized_face.append(name)
+
+                # rng = np.random.default_rng(3)
+                # colors = rng.uniform(0, 255, size=(len(face_locations), 3))
+
+                for name in self.recognized_face:
+                    # Rescaling
+                    bbox = self.CHECK[name]["location"]
+                    bbox = (
+                        np.array(bbox) * 1 / self.CONFIG["recog_size"]["fx"]
+                    ).astype(np.int32)
+
+                    # Draw bbox
+                    top, right, bottom, left = bbox
+                    cv2.rectangle(
+                        self.frame, (left, top), (right, bottom), (0, 0, 255), 2
+                    )
+                    cv2.rectangle(
+                        self.frame,
+                        (left, bottom - 35),
+                        (right, bottom),
+                        (0, 0, 255),
+                        cv2.FILLED,
+                    )
+                    cv2.putText(
+                        self.frame,
+                        name,
+                        (left + 6, bottom + 6),
+                        cv2.FONT_HERSHEY_DUPLEX,
+                        1,
+                        (255, 255, 255),
+                        1,
+                    )
+
+            cv2.imshow("Face Recognition", self.frame)
+            if self.key == ord("q"):
+                cv2.destroyAllWindows()
+                return False
+
+        return True
+
+    def __face_recognition(self):
+        while True:
+            if self.key == ord("q"):
+                break
+
+            if self.key == ord("r"):
+                self.__register()
+
+            self.__recognition()
+            self.frame_num += 1
+            if self.frame_num > self.CONFIG["process_frame"]:
+                self.frame_num = 0
+            time.sleep(0.03)
+
+        print("Finish Face Recognition")
+
+    def __register(self):
+        image = self.frame.copy()
         image_capture = cv2.resize(
             image,
             (0, 0),
@@ -60,14 +168,12 @@ class FACE_RECOG:
         )
 
         # Check Error : No face or multiple faces
-        face_location = face.face_locations(image_capture)
-        if len(face_location) != 1:
+        face_locations = face.face_locations(image_capture)
+        if len(face_locations) != 1:
             if self.debug:
                 print(
-                    f"I found {len(face_location)} face(s) in this photograph. so capture canceled."
+                    f"I found {len(face_locations)} face(s) in this photograph. so capture canceled."
                 )
-
-            return frame
 
         # Input name
         name = input("Please Enter a name : ")
@@ -77,103 +183,102 @@ class FACE_RECOG:
         cv2.imwrite(save_path, image)
 
         # Save name voice
-        save_path = os.path.join(self.CONFIG["sound_dir"])
+        sound_path = os.path.join(self.CONFIG["sound_dir"], name + ".mp3")
 
         tts = gTTS(name, lang="en")
-        tts.save(save_path)
+        tts.save(sound_path)
 
         # Encoding New face
-        self.encoding[name] = face.face_encodings(image)[0]
+        self.encoding[name] = face.face_encodings(image, face_locations)[0]
 
-        self.THREAD["register"] = 0
+        print("Registration Complete.")
 
-    def __recognition(self, frame, frame_num):
-        if frame_num % self.CONFIG["process_frame"] != 0:
-            return frame
+    def __recognition(self):
+        if self.frame is None:
+            return
 
-        image = frame.copy()
-        image = cv2.resize(
-            image,
-            (0, 0),
-            fx=self.CONFIG["recog_size"]["fx"],
-            fy=self.CONFIG["recog_size"]["fy"],
-        )
+        self.recognized_face = []
+        if self.frame_num % self.CONFIG["process_frame"] == 0:
+            image = self.frame.copy()
+            image = cv2.resize(
+                image,
+                (0, 0),
+                fx=self.CONFIG["recog_size"]["fx"],
+                fy=self.CONFIG["recog_size"]["fy"],
+            )
 
-        face_locations = face.face_locations(image)
-        face_encodings = face.face_encodings(image, face_locations)
+            face_locations = face.face_locations(image)
+            face_encodings = face.face_encodings(image, face_locations)
 
-        if len(face_locations) == 0:
+            if len(face_locations) == 0:
+                if "no_face" not in self.CHECK:
+                    self.NO_FACE = 1
+                else:
+                    self.NO_FACE += 1
+
+                if self.NO_FACE >= self.CONFIG["check_no_face"]:
+                    if self.THREAD["voice"] == 0:
+                        voice_thread = self.__set_thread(
+                            target=self.__voice,
+                            kwargs_dict={"name_list": ["no_face_find"]},
+                        )
+                        voice_thread.start()
+
+                    self.NO_FACE = 0
+
+                return
+
+            for idx, encoding in enumerate(face_encodings):
+                name = "unknown"
+                if len(self.encoding) != 0:
+                    distance = face.face_distance(
+                        list(self.encoding.values()), encoding
+                    )
+                    match_idx = np.argmin(distance)
+
+                    if distance[match_idx] < self.CONFIG["distance_thres"]:
+                        name = list(self.encoding.keys())[match_idx]
+
+                if name not in self.CHECK:
+                    self.CHECK[name] = {
+                        "val": [0, 1],
+                        "location": face_locations[idx],
+                    }  # [Is_known, Count]
+                else:
+                    self.CHECK[name]["val"][-1] += 1
+                    if self.CHECK[name]["val"][-1] >= self.CONFIG["check_face"]:
+                        # if self.debug:
+                        #     print(f"Person Name : {name}")
+
+                        self.recognized_face.append(name)
+                        self.CHECK[name]["val"][0] += 1
+                        self.CHECK[name]["val"][-1] = 0
+                        self.CHECK[name]["location"] = face_locations[idx]
+
+            # if self.LOCATION != len(face_locations):
+            #     name_list = self.CHECK.keys()
+            #     count_list = np.array(self.CHECK.values())
+            #     if len(name_list) == 0:
+            #         pass
+            #     elif len(face_locations) == 0:
+            #         self.CHECK.clear()
+            #     else:
+            #         max_count = np.max(count_list)
+            #         for idx, name in enumerate(name_list):
+            #             if count_list[idx] < max_count:
+            #                 del self.CHECK[name]
+
+            #     self.LOCATION = len(face_locations)
+
+            # Speak
             if self.THREAD["voice"] == 0:
                 voice_thread = self.__set_thread(
-                    target=self.__voice, kwargs_dict={"name_list": ["no_face_find"]}
+                    target=self.__voice, kwargs_dict={"name_list": self.recognized_face}
                 )
                 voice_thread.start()
 
-            return frame
-
-        recognized_face = []
-        for encoding in face_encodings:
-            name = "unknown"
-            if len(self.encoding) != 0:
-                distance = face.face_distance(list(self.encoding.values()), encoding)
-                match_idx = np.armin(distance)
-
-                if distance[match_idx] < self.CONFIG["distance_thres"]:
-                    name = list(self.encoding.keys())[match_idx]
-
-            if name not in self.CHECK:
-                self.CHECK[name] = 1
-            else:
-                self.CHECK[name] += 1
-                if self.CHECK[name] >= self.CONFIG["check_face"]:
-                    if self.debug:
-                        print(f"Person Name : {name}")
-
-                    recognized_face.append(name)
-                    self.CHECK[name] = 0
-
-        # Speak
-        if self.THREAD["voice"] == 0:
-            voice_thread = self.__set_thread(
-                target=self.__voice, kwargs_dict={"name_list": recognized_face}
-            )
-            voice_thread.start()
-
-        if self.debug:
-            if len(recognized_face) == 0:
-                return frame
-
-            rng = np.random.default_rng(3)
-            colors = rng.uniform(0, 255, size=(len(face_locations), 3))
-
-            for bbox, name in zip(face_locations, recognized_face):
-                # Rescaling
-                bbox = bbox * 1 / self.CONFIG["recog_size"]["fx"]
-
-                # Draw bbox
-                top, right, bottom, left = bbox
-                cv2.rectange(frame, (left, top), (right, bottom), (0, 0, 255), 2)
-                cv2.rectange(
-                    frame,
-                    (left, bottom - 35),
-                    (right, bottom),
-                    (0, 0, 255),
-                    cv2.FILLED,
-                )
-                cv2.putText(
-                    frame,
-                    name,
-                    (left + 6, bottom + 6),
-                    cv2.FONT_HERSHEY_DUPLEX,
-                    1.0,
-                    (255, 255, 255),
-                    1,
-                )
-
-        return frame
-
     def __loading(self):
-        print(" Loading . . . ")
+        print("Loading . . . ")
 
         # Element : (image_path, names)
         database = [
@@ -184,9 +289,11 @@ class FACE_RECOG:
         encoding = OrderedDict()
         for img_path, name in database:
             image = face.load_image_file(img_path)
-            encoding[name] = face.face_encodings(image)[0]
+            face_locations = face.face_locations(image)
+            encoding[name] = face.face_encodings(image, face_locations)[0]
 
         print(f"{len(database)} images loaded.")
+        print("Start Face Recognition.")
 
     def __voice(self, name_list):
         self.THREAD["voice"] = 1
@@ -200,5 +307,5 @@ class FACE_RECOG:
 
         self.THREAD["voice"] = 0
 
-    def __set_thread(self, target, kwargs_dict):
+    def __set_thread(self, target, kwargs_dict={}):
         return threading.Thread(target=target, kwargs=kwargs_dict)
