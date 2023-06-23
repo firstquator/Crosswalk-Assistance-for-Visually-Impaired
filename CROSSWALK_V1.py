@@ -8,10 +8,6 @@ import numpy as np
 from sklearn import linear_model
 from YOLO.YOLO import YOLO
 
-# TODO #
-# 1. debug mode
-# 2. 이미지에 이쁘게 글씨 넣는 법 검색
-
 
 class HELP_CROSSWALK:
     CONFIG = {
@@ -31,7 +27,11 @@ class HELP_CROSSWALK:
             "timer": -1,
             "pause_time": 3,
             "error_cnt": 0,
-            "debug_color_dict": {"font_color": (0, 0, 0)},
+            "debug_color_dict": {
+                "font_color": (255, 0, 0),
+                "not_satisfied_area": (75, 77, 235),
+                "satisfied_area": (76, 176, 106),
+            },
         },
         "LOCATION_PED": {
             "min_region_area_factor": 0.05,
@@ -47,7 +47,7 @@ class HELP_CROSSWALK:
             "timer": -1,
             "pause_time": 3,
             "debug_color_dict": {
-                "font_color": (0, 0, 0),
+                "font_color": (255, 0, 0),
                 "connect_lines": (34, 190, 242),
                 "left_points": (39, 151, 242),
                 "right_points": (39, 151, 242),
@@ -60,8 +60,11 @@ class HELP_CROSSWALK:
         "DETECT_TL": {
             "cumulative_light": 5,
             "class_rate": 0.8,
+            "timer": -1,
+            "delay": 20,
+            "red_switch": 0,
             "debug_color_dict": {
-                "font_color": (0, 0, 0),
+                "font_color": (255, 0, 0),
             },
         },
     }
@@ -206,11 +209,13 @@ class HELP_CROSSWALK:
         duration = 0
 
         ## If the bbox is centered and reaches a certain distance, represent to change mode
+        color = None
         if (
             ud_idx == 1
             and lr_idx == 1
             and r_area >= W * H * self.CONFIG["FIND_ZC"]["max_region_area_factor"]
         ):
+            color = self.CONFIG["FIND_ZC"]["debug_color_dict"]["satisfied_area"]
             alarm = "MOVE : STOP"
             if self.voice and self.THREAD["HARD"] == 0:
                 voice_thread = self.__set_voice_thread("STOP", strength="HARD")
@@ -230,10 +235,12 @@ class HELP_CROSSWALK:
             and lr_idx == 1
             and r_area < W * H * self.CONFIG["FIND_ZC"]["max_region_area_factor"]
         ):
+            color = self.CONFIG["FIND_ZC"]["debug_color_dict"]["not_satisfied_area"]
             if self.voice and self.THREAD["SOFT"] == 0:
                 voice_thread = self.__set_voice_thread("STRAIGHT")
                 voice_thread.start()
         else:
+            color = self.CONFIG["FIND_ZC"]["debug_color_dict"]["not_satisfied_area"]
             self.CONFIG["FIND_ZC"]["timer"] = -1
             if self.voice and self.THREAD["SOFT"] == 0:
                 voice_thread = self.__set_voice_thread(direction)
@@ -241,6 +248,10 @@ class HELP_CROSSWALK:
 
         # [ DEBUG ]
         if self.debug:
+            frame = self.detector.draw_detections(
+                frame, ([bbox], [score], [class_id]), color
+            )  ## Draw bbox
+
             cv2.putText(
                 frame,
                 f"Duration : {duration}",
@@ -304,6 +315,9 @@ class HELP_CROSSWALK:
                 < r_area * self.CONFIG["LOCATION_PED"]["contour_area_thres"]
             ):
                 continue
+
+            if self.debug:
+                cv2.drawContours(erode, [contour], 0, (255, 0, 0), 3)
 
             rect = cv2.minAreaRect(contour)
             left, right = self.__boxPoints(rect)
@@ -536,8 +550,17 @@ class HELP_CROSSWALK:
                     (mid[0], mid[1]),
                     5,
                     self.CONFIG["LOCATION_PED"]["debug_color_dict"]["center_points"],
-                    2,
+                    1,
                 )  ### Circles -> middle line
+
+                cv2.arrowedLine(
+                    frame,
+                    (x_interpolation, H - 1),
+                    (ransacMiddle[-1]),
+                    self.CONFIG["LOCATION_PED"]["debug_color_dict"]["x_interpolation"],
+                    10,
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                )
 
             ## Show center point, x interpolation point and safety zones
             cv2.circle(
@@ -597,11 +620,33 @@ class HELP_CROSSWALK:
                 * self.CONFIG["DETECT_TL"]["class_rate"]
             ):
                 traffic_light = light_class[most_class]
-                if self.voice and self.THREAD["HARD"] == 0:
+                voice = True
+
+                if traffic_light == "NONE":
+                    if self.CONFIG["DETECT_TL"]["timer"] == -1:
+                        self.CONFIG["DETECT_TL"]["timer"] = time.time()
+                    else:
+                        if (
+                            time.time() - self.CONFIG["DETECT_TL"]["timer"]
+                            > self.CONFIG["DETECT_TL"]["delay"]
+                        ):
+                            self.cur_mode = self.MODE["FIND_ZC"]
+                            self.CONFIG["DETECT_TL"]["timer"] = -1
+                elif traffic_light == "RED":
+                    self.CONFIG["DETECT_TL"]["red_switch"] = 1
+                elif traffic_light == "GREEN":
+                    if self.CONFIG["DETECT_TL"]["red_switch"] == 1:
+                        self.CONFIG["DETECT_TL"]["red_switch"] = 0
+                    else:
+                        voice = False
+
+                # Voice
+                if self.voice and self.THREAD["HARD"] == 0 and voice:
                     voice_thread = self.__set_voice_thread(
                         traffic_light, strength="HARD"
                     )
                     voice_thread.start()
+
                 cumulate.clear()
                 traffic_light = None
             else:
@@ -759,16 +804,19 @@ class HELP_CROSSWALK:
         box2_area = (x2_box2 - x1_box2 + 1) * (y2_box2 - y1_box2 + 1)
 
         # Calculate coordinate overlap of boxes
-        x_left = max(x1_box1, x1_box2)
-        y_top = max(y1_box1, y1_box2)
-        x_right = min(x2_box1, x2_box2)
-        y_bottom = min(y2_box1, y2_box2)
+        x_left = np.maximum(x1_box1, x1_box2)
+        y_top = np.maximum(y1_box1, y1_box2)
+        x_right = np.minimum(x2_box1, x2_box2)
+        y_bottom = np.minimum(y2_box1, y2_box2)
 
         # Calculate the width and height of nested boxes
-        intersection_area = max(0, x_right - x_left + 1) * max(0, y_bottom - y_top + 1)
+        intersection_area = np.maximum(0, x_right - x_left + 1) * np.maximum(
+            0, y_bottom - y_top + 1
+        )
+        union_area = box1_area + box2_area - intersection_area
 
         # Compute IoU
-        iou = intersection_area / float(box1_area + box2_area - intersection_area)
+        iou = intersection_area / union_area
 
         return iou
 

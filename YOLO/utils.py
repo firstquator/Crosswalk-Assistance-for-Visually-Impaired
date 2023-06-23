@@ -61,7 +61,9 @@ def xywh2xyxy(x):
     return y
 
 
-def draw_detections(image, boxes, scores, class_ids, mask_alpha=0.3):
+def draw_detections(
+    image, boxes, scores, class_ids, specify_color=None, mask_alpha=0.3
+):
     mask_img = image.copy()
     det_img = image.copy()
 
@@ -71,7 +73,12 @@ def draw_detections(image, boxes, scores, class_ids, mask_alpha=0.3):
 
     # Draw bounding boxes and labels of detections
     for box, score, class_id in zip(boxes, scores, class_ids):
-        color = colors[class_id]
+        class_id = class_id.astype(int)
+
+        if specify_color is None:
+            color = colors[class_id]
+        else:
+            color = specify_color
 
         x1, y1, x2, y2 = box.astype(int)
 

@@ -148,12 +148,14 @@ class YOLO:
         )
         return boxes
 
-    def draw_detections(self, image, draw_info=None, mask_alpha=0.3):
+    def draw_detections(
+        self, image, draw_info=None, specify_color=None, mask_alpha=0.3
+    ):
         if draw_info is not None:
             self.boxes, self.scores, self.class_ids = draw_info
 
         return draw_detections(
-            image, self.boxes, self.scores, self.class_ids, mask_alpha
+            image, self.boxes, self.scores, self.class_ids, specify_color, mask_alpha
         )
 
     def get_input_details(self):

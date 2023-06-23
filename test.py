@@ -50,7 +50,7 @@ cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)
 crosswalk = HELP_CROSSWALK(debug=args.debug, voice=args.voice)
 crosswalk.set_onnx(onnx_path=args.onnx)
 
-if args.save:
+if args.save is not None:
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     out = cv2.VideoWriter(
         f"{os.path.join(args.save, args.save_name)}", fourcc, args.fps, args.size

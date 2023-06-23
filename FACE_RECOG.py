@@ -1,6 +1,7 @@
 import os
 import cv2
 import time
+import copy
 import threading
 import numpy as np
 import face_recognition as face
@@ -95,7 +96,7 @@ class FACE_RECOG:
                     ]
                     if len(count_list) != 0:
                         max_count = max(count_list)
-                        name_list = self.CHECK.keys()
+                        name_list = copy.deepcopy(self.CHECK.keys())
                         for idx, name in enumerate(name_list):
                             if count_list[idx] < max_count:
                                 del self.CHECK[name]
