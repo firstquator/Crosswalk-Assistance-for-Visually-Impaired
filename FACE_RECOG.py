@@ -18,7 +18,7 @@ class FACE_RECOG:
         "capture_size": {"fx": 1.0, "fy": 1.0},
         "recog_size": {"fx": 0.25, "fy": 0.25},
         "distance_thres": 0.3,
-        "process_frame": 8,
+        "process_frame": 1,
         "check_face": 5,
         "check_no_face": 35,
         "voice_interval": 1.2,
@@ -26,7 +26,7 @@ class FACE_RECOG:
     }
 
     CHECK = {}
-    THREAD = {"voice": 1, "register": 0}
+    THREAD = {"voice": 1, "register": 0, "recog": 0}
     LOCATION = 0
     NO_FACE = 0
 
@@ -86,34 +86,13 @@ class FACE_RECOG:
 
         while cap.isOpened():
             ret, self.frame = cap.read()
-
             self.key = cv2.waitKey(25)
             if self.debug:
-                if len(self.recognized_face) == 0:
-                    count_list = [
-                        self.CONFIG["process_frame"] * v["val"][0] + v["val"][-1]
-                        for v in self.CHECK.values()
-                    ]
-                    if len(count_list) != 0:
-                        max_count = max(count_list)
-                        name_list = copy.deepcopy(self.CHECK.keys())
-                        for idx, name in enumerate(name_list):
-                            if count_list[idx] < max_count:
-                                del self.CHECK[name]
-                            else:
-                                if name not in self.recognized_face:
-                                    self.recognized_face.append(name)
-
-                # rng = np.random.default_rng(3)
-                # colors = rng.uniform(0, 255, size=(len(face_locations), 3))
-
-                for name in self.recognized_face:
+                for name, bbox in self.recognized_face:
                     # Rescaling
-                    bbox = self.CHECK[name]["location"]
                     bbox = (
                         np.array(bbox) * 1 / self.CONFIG["recog_size"]["fx"]
                     ).astype(np.int32)
-
                     # Draw bbox
                     top, right, bottom, left = bbox
                     cv2.rectangle(
@@ -137,11 +116,10 @@ class FACE_RECOG:
                     )
 
             cv2.imshow("Face Recognition", self.frame)
+
             if self.key == ord("q"):
                 cv2.destroyAllWindows()
-                return False
-
-        return True
+                break
 
     def __face_recognition(self):
         while True:
@@ -151,11 +129,13 @@ class FACE_RECOG:
             if self.key == ord("r"):
                 self.__register()
 
-            self.__recognition()
+            if self.THREAD["recog"] == 0:
+                self.__recognition()
+
             self.frame_num += 1
             if self.frame_num > self.CONFIG["process_frame"]:
                 self.frame_num = 0
-            time.sleep(0.03)
+            time.sleep(0.01)
 
         print("Finish Face Recognition")
 
@@ -175,6 +155,7 @@ class FACE_RECOG:
                 print(
                     f"I found {len(face_locations)} face(s) in this photograph. so capture canceled."
                 )
+            return
 
         # Input name
         name = input("Please Enter a name : ")
@@ -198,7 +179,8 @@ class FACE_RECOG:
         if self.frame is None:
             return
 
-        self.recognized_face = []
+        self.THREAD["recog"] = 1  # LOCK
+
         if self.frame_num % self.CONFIG["process_frame"] == 0:
             image = self.frame.copy()
             image = cv2.resize(
@@ -212,12 +194,15 @@ class FACE_RECOG:
             face_encodings = face.face_encodings(image, face_locations)
 
             if len(face_locations) == 0:
+                self.recognized_face = []
+
                 if "no_face" not in self.CHECK:
                     self.NO_FACE = 1
                 else:
                     self.NO_FACE += 1
 
                 if self.NO_FACE >= self.CONFIG["check_no_face"]:
+                    # Speak
                     if self.THREAD["voice"] == 0:
                         voice_thread = self.__set_thread(
                             target=self.__voice,
@@ -227,8 +212,11 @@ class FACE_RECOG:
 
                     self.NO_FACE = 0
 
+                self.THREAD["recog"] = 0
                 return
 
+            face_info_list = []
+            recogized_face_name = [n for n, l in self.recognized_face]
             for idx, encoding in enumerate(face_encodings):
                 name = "unknown"
                 if len(self.encoding) != 0:
@@ -240,36 +228,10 @@ class FACE_RECOG:
                     if distance[match_idx] < self.CONFIG["distance_thres"]:
                         name = list(self.encoding.keys())[match_idx]
 
-                if name not in self.CHECK:
-                    self.CHECK[name] = {
-                        "val": [0, 1],
-                        "location": face_locations[idx],
-                    }  # [Is_known, Count]
-                else:
-                    self.CHECK[name]["val"][-1] += 1
-                    if self.CHECK[name]["val"][-1] >= self.CONFIG["check_face"]:
-                        # if self.debug:
-                        #     print(f"Person Name : {name}")
+                face_info = (name, face_locations[idx])
+                face_info_list.append(face_info)
 
-                        self.recognized_face.append(name)
-                        self.CHECK[name]["val"][0] += 1
-                        self.CHECK[name]["val"][-1] = 0
-                        self.CHECK[name]["location"] = face_locations[idx]
-
-            # if self.LOCATION != len(face_locations):
-            #     name_list = self.CHECK.keys()
-            #     count_list = np.array(self.CHECK.values())
-            #     if len(name_list) == 0:
-            #         pass
-            #     elif len(face_locations) == 0:
-            #         self.CHECK.clear()
-            #     else:
-            #         max_count = np.max(count_list)
-            #         for idx, name in enumerate(name_list):
-            #             if count_list[idx] < max_count:
-            #                 del self.CHECK[name]
-
-            #     self.LOCATION = len(face_locations)
+            self.recognized_face = face_info_list
 
             # Speak
             if self.THREAD["voice"] == 0:
@@ -277,6 +239,8 @@ class FACE_RECOG:
                     target=self.__voice, kwargs_dict={"name_list": self.recognized_face}
                 )
                 voice_thread.start()
+
+        self.THREAD["recog"] = 0  # Release
 
     def __loading(self):
         print("Loading . . . ")

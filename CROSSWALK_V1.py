@@ -620,9 +620,21 @@ class HELP_CROSSWALK:
                 * self.CONFIG["DETECT_TL"]["class_rate"]
             ):
                 traffic_light = light_class[most_class]
-                voice = True
+                timer = False
 
                 if traffic_light == "NONE":
+                    timer = True
+                elif traffic_light == "RED":
+                    self.CONFIG["DETECT_TL"]["red_switch"] = 1
+                    timer = False
+                elif traffic_light == "GREEN":
+                    if self.CONFIG["DETECT_TL"]["red_switch"] == 1:
+                        timer = True
+                        self.CONFIG["DETECT_TL"]["red_switch"] = 0
+                    else:
+                        timer = False
+
+                if timer:
                     if self.CONFIG["DETECT_TL"]["timer"] == -1:
                         self.CONFIG["DETECT_TL"]["timer"] = time.time()
                     else:
@@ -632,16 +644,9 @@ class HELP_CROSSWALK:
                         ):
                             self.cur_mode = self.MODE["FIND_ZC"]
                             self.CONFIG["DETECT_TL"]["timer"] = -1
-                elif traffic_light == "RED":
-                    self.CONFIG["DETECT_TL"]["red_switch"] = 1
-                elif traffic_light == "GREEN":
-                    if self.CONFIG["DETECT_TL"]["red_switch"] == 1:
-                        self.CONFIG["DETECT_TL"]["red_switch"] = 0
-                    else:
-                        voice = False
 
                 # Voice
-                if self.voice and self.THREAD["HARD"] == 0 and voice:
+                if self.voice and self.THREAD["HARD"] == 0:
                     voice_thread = self.__set_voice_thread(
                         traffic_light, strength="HARD"
                     )
